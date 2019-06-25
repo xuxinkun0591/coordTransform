@@ -9,4 +9,5 @@ from dual; </br>
 ----------OUTPUT------------  </br>
 SDO_GEOMETRY(2001, 4326, MDSYS.SDO_POINT_TYPE(118.9956523, 20.002079, NULL), NULL, NULL)
 
-
+</br></br>
+By xuxinkun
