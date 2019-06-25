@@ -3,8 +3,7 @@
 用法: 包coord包含多个函数, 用户用到的只有6个函数-- wgs2bd(wgs转百度)/wgs2gd(wgs转高德)/gd2bd(高德转百度),以及反过来的三个(bd2wgs/gd2wgs/bd2gd),输入变量为原sdo_geometry, 输出变量为转换后的sdo_geometry. 如高德经纬度点(119,20),对应geom=SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(119,20,NULL),NULL,NULL),需要转换为WGS坐标, 直接用包中的函数coord.gd2wgs(geom),即可得到转换后的坐标(118.9956523, 20.002079).</br>
 </br>
 代码示例: </br>
-SELECT SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(119,20,NULL),NULL,NULL) ori_point
-coord.gd2wgs(SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(119,20,NULL),NULL,NULL)) trans_point
+SELECT coord.gd2wgs(SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(119,20,NULL),NULL,NULL)) trans_point
 from dual; </br>
 </br>
 ----------OUTPUT------------  </br>
