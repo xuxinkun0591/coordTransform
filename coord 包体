@@ -1,0 +1,446 @@
+create or replace package body COORD is
+
+    FUNCTION LAT_OFFSET_0(x NUMBER ,y NUMBER) RETURN NUMBER IS
+    BEGIN
+      RETURN -100.0 + 2.0*x + 3.0*y + 0.2*y*y + 0.1*x*y + 0.2* sqrt(abs(x));
+    END;
+    FUNCTION LAT_OFFSET_1(x NUMBER ,y NUMBER) RETURN NUMBER IS
+    BEGIN
+      return (20.0 * sin(6.0 * x * ACOS(-1)) + 20.0 * sin(2.0 * x * ACOS(-1))) * 2.0 / 3.0;
+    END;
+    FUNCTION LAT_OFFSET_2(x NUMBER ,y NUMBER) RETURN NUMBER IS
+    BEGIN
+      return (20.0 * sin(y * ACOS(-1)) + 40.0 * sin(y / 3.0 * ACOS(-1))) * 2.0 / 3.0;
+    END;
+    FUNCTION LAT_OFFSET_3(x NUMBER ,y NUMBER) RETURN NUMBER IS
+    BEGIN
+      return (160.0 * sin(y / 12.0 * ACOS(-1)) + 320 * sin(y * ACOS(-1) / 30.0)) * 2.0 / 3.0;
+    END;
+
+    FUNCTION LON_OFFSET_0(x NUMBER ,y NUMBER) RETURN NUMBER IS
+    BEGIN
+      return 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * sqrt(abs(x));
+    END;
+    FUNCTION LON_OFFSET_1(x NUMBER ,y NUMBER) RETURN NUMBER IS
+    BEGIN
+      return (20.0 * sin(6.0 * x * ACOS(-1)) + 20.0 * sin(2.0 * x * ACOS(-1))) * 2.0 / 3.0;
+    END;
+    FUNCTION LON_OFFSET_2(x NUMBER ,y NUMBER) RETURN NUMBER IS
+    BEGIN
+      return (20.0 * sin(x * ACOS(-1)) + 40.0 * sin(x / 3.0 * ACOS(-1))) * 2.0 / 3.0;
+    END;
+    FUNCTION LON_OFFSET_3(x NUMBER ,y NUMBER) RETURN NUMBER IS
+    BEGIN
+      return (150.0 * sin(x / 12.0 * ACOS(-1)) + 300.0 * sin(x / 30.0 * ACOS(-1))) * 2.0 / 3.0;
+    END;
+
+
+
+    FUNCTION transformLat(x number,y number) return NUMBER is
+    ret NUMBER;
+    begin 
+        ret := LAT_OFFSET_0(x,y);
+        ret := ret + LAT_OFFSET_1(x,y);
+        ret := ret + LAT_OFFSET_2(x,y);
+        ret := ret + LAT_OFFSET_3(x,y);
+        return ret;
+    end;
+    FUNCTION transformLon(x number,y number) return NUMBER is
+    ret NUMBER;
+    begin 
+        ret := LON_OFFSET_0(x,y);
+        ret := ret + LON_OFFSET_1(x,y);
+        ret := ret + LON_OFFSET_2(x,y);
+        ret := ret + LON_OFFSET_3(x,y);
+        return ret;
+    end;
+
+
+
+    FUNCTION OUTOFCHINA(LAT NUMBER, LON NUMBER) RETURN BOOLEAN IS
+    BEGIN
+        IF (LON < RANGE_LON_MIN OR LON > RANGE_LON_MAX) THEN 
+           RETURN TRUE;
+        END IF;
+        IF (LAT < RANGE_LAT_MIN OR LAT > RANGE_LAT_MAX) THEN 
+           RETURN TRUE;
+        END IF;
+        RETURN FALSE;
+    END;
+
+    FUNCTION gcj02Encrypt(ggLat NUMBER, ggLon NUMBER) RETURN MDSYS.SDO_ORDINATE_ARRAY IS
+    ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    LAT NUMBER;
+    LON NUMBER;
+    mgLat NUMBER;
+    mgLon NUMBER;
+    dLat NUMBER;
+    dLon NUMBER;
+    radLat NUMBER;
+    magic NUMBER;
+    sqrtMagic NUMBER;
+    BEGIN
+        IF (OUTOFCHINA(ggLat,ggLon) = TRUE) THEN 
+           LAT := ggLat;
+           LON := ggLon;
+           ord.extend;
+           ord(ord.last) := trunc(ggLon,7);
+           ord.extend;
+           ord(ord.last) := trunc(ggLat,7);
+           RETURN ord;
+        END IF;
+        dLat := transformLat(ggLon - 105.0, ggLat - 35.0);
+        dLon := transformLon(ggLon - 105.0, ggLat - 35.0);
+        radLat := (ggLat/180.0) * ACOS(-1);
+        magic := sin(radlat);
+        magic := 1 - jzEE*magic*magic;
+        sqrtMagic := sqrt(magic);
+        dLat := (dLat * 180.0) / ((jzA * (1 - jzEE)) / (magic * sqrtMagic) * ACOS(-1));
+        dLon := (dLon * 180.0) / (jzA / sqrtMagic * cos(radLat) * ACOS(-1));
+        mgLat := ggLat + dLat;
+        mgLon := ggLon + dLon;
+        ord.extend;
+        ord(ord.last) := trunc(mgLon,15);
+        ord.extend;
+        ord(ord.last) := trunc(mgLat,15);
+        RETURN ord;
+    END;
+ 
+    FUNCTION gcj02Decrypt(gjLat NUMBER,gjLon NUMBER) RETURN MDSYS.SDO_ORDINATE_ARRAY IS
+    ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    ord_new MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    dLon number;
+    dLat number;
+    begin
+        ord := gcj02Encrypt(gjLat,gjLon);
+        dLon := ord(1) - gjLon;  
+        dLat := ord(2) - gjLat;
+        ord_new.extend;
+        ord_new(ord_new.last) := trunc(gjLon - dLon,15);
+        ord_new.extend;
+        ord_new(ord_new.last) := trunc(gjLat - dLat,15);
+        return ord_new;        
+    end;    
+
+    FUNCTION bd09Decrypt(bdLat NUMBER, bdLon NUMBER) RETURN MDSYS.SDO_ORDINATE_ARRAY IS
+    ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    x number;
+    y number;
+    z number;
+    theta number;
+    begin
+        x:= bdLon - 0.0065;
+        y:= bdLat - 0.006;
+        z:= sqrt(x*x + y*y) - 0.00002*sin(y*ACOS(-1));
+        theta := atan2(y, x) - 0.000003 * cos(x * ACOS(-1));
+        ord.extend;
+        ord(ord.last) := trunc(z*cos(theta),15);
+        ord.extend;
+        ord(ord.last) := trunc(z*sin(theta),15);
+        return ord;
+    end;
+
+    FUNCTION bd09Encrypt(ggLat NUMBER, ggLon NUMBER) RETURN MDSYS.SDO_ORDINATE_ARRAY IS 
+    ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    x number;
+    y number;
+    z number;
+    theta number;
+    begin
+        x := ggLon;
+        y := ggLat;
+        z := sqrt(x*x + y*y) + 0.00002*sin(y*ACOS(-1));
+        theta := atan2(y,x) + 0.000003*cos(x*ACOS(-1));
+        ord.extend;
+        ord(ord.last) := trunc(z*cos(theta) + 0.0065,15);
+        ord.extend;
+        ord(ord.last) := trunc(z*sin(theta) + 0.006,15);
+        return ord;
+    end;
+
+
+
+  FUNCTION wgs2gd(geom SDO_GEOMETRY) RETURN SDO_GEOMETRY IS
+    gtype int := geom.sdo_gtype;  --点线面判断
+    new_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    old_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    point_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    ord_length int;
+    i int := 1;
+    
+    BEGIN
+        if (gtype = 2001) then  --点
+            new_ord := gcj02Encrypt(geom.sdo_point.y,geom.sdo_point.x);
+            RETURN SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(trunc(new_ord(1),7),trunc(new_ord(2),7),NULL),NULL,NULL);
+        end if;
+       
+        if (gtype = 2002) then --线
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+            loop
+                point_ord := gcj02Encrypt(old_ord(i+1),old_ord(i));
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(1),7);
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(2),7);
+                i := i+2;
+            end loop;
+            return SDO_GEOMETRY(2002, 4326,NULL,SDO_ELEM_INFO_ARRAY(1,2,1),new_ord);
+        end if;
+      
+        if (gtype = 2003) then --面
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+                loop
+                    point_ord := gcj02Encrypt(old_ord(i+1),old_ord(i));
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(1),7);
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(2),7);
+                    i := i+2;
+                end loop;
+                return SDO_GEOMETRY(2003,4326,NULL,SDO_ELEM_INFO_ARRAY(1,1003,1),new_ord);
+        end if;
+        RETURN NULL;
+    END;
+
+  FUNCTION gd2wgs(geom SDO_GEOMETRY) RETURN SDO_GEOMETRY is
+    gtype int := geom.sdo_gtype;  --点线面判断
+    new_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    old_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    point_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    ord_length int;
+    i int := 1;
+    
+    BEGIN
+        if (gtype = 2001) then  --点
+            new_ord := gcj02Decrypt(geom.sdo_point.y,geom.sdo_point.x);
+            RETURN SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(trunc(new_ord(1),7),trunc(new_ord(2),7),NULL),NULL,NULL);
+        end if;
+       
+        if (gtype = 2002) then --线
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+            loop
+                point_ord := gcj02Decrypt(old_ord(i+1),old_ord(i));
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(1),7);
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(2),7);
+                i := i+2;
+            end loop;
+            return SDO_GEOMETRY(2002, 4326,NULL,SDO_ELEM_INFO_ARRAY(1,2,1),new_ord);
+        end if;
+      
+        if (gtype = 2003) then --面
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+                loop
+                    point_ord := gcj02Decrypt(old_ord(i+1),old_ord(i));
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(1),7);
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(2),7);
+                    i := i+2;
+                end loop;
+                return SDO_GEOMETRY(2003,4326,NULL,SDO_ELEM_INFO_ARRAY(1,1003,1),new_ord);
+        end if;
+        RETURN NULL;
+    END;
+
+  FUNCTION wgs2bd(geom SDO_GEOMETRY) RETURN SDO_GEOMETRY IS
+    gtype int := geom.sdo_gtype;  --点线面判断
+    new_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    old_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    point_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    ord_length int;
+    i int := 1;
+    
+    BEGIN
+        if (gtype = 2001) then  --点
+            new_ord := gcj02Encrypt(geom.sdo_point.y,geom.sdo_point.x); --百度是在gcj的基础上加密,因此第一次处理gcj
+            new_ord := bd09Encrypt(new_ord(2),new_ord(1));   --第二次处理 
+            RETURN SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(trunc(new_ord(1),7),trunc(new_ord(2),7),NULL),NULL,NULL);
+        end if;
+       
+        if (gtype = 2002) then --线 
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+            loop
+                point_ord := gcj02Encrypt(old_ord(i+1),old_ord(i));
+                point_ord := bd09Encrypt(point_ord(2),point_ord(1));
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(1),7);
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(2),7);
+                i := i+2;
+            end loop;
+            return SDO_GEOMETRY(2002, 4326,NULL,SDO_ELEM_INFO_ARRAY(1,2,1),new_ord);
+        end if;
+      
+        if (gtype = 2003) then --面
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+                loop
+                    point_ord := gcj02Encrypt(old_ord(i+1),old_ord(i));
+                    point_ord := bd09Encrypt(point_ord(2),point_ord(1));
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(1),7);
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(2),7);
+                    i := i+2;
+                end loop;
+                return SDO_GEOMETRY(2003,4326,NULL,SDO_ELEM_INFO_ARRAY(1,1003,1),new_ord);
+        end if; 
+        RETURN NULL;
+    END; 
+
+  FUNCTION gd2bd(geom SDO_GEOMETRY) RETURN SDO_GEOMETRY IS
+    gtype int := geom.sdo_gtype;  --点线面判断
+    new_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    old_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    point_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    ord_length int;
+    i int := 1;
+    
+    BEGIN
+        if (gtype = 2001) then  --点
+            new_ord := bd09Encrypt(geom.sdo_point.y,geom.sdo_point.x);
+            RETURN SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(trunc(new_ord(1),7),trunc(new_ord(2),7),NULL),NULL,NULL);
+        end if;
+       
+        if (gtype = 2002) then --线
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+            loop
+                point_ord := bd09Encrypt(old_ord(i+1),old_ord(i));
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(1),7);
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(2),7);
+                i := i+2;
+            end loop;
+            return SDO_GEOMETRY(2002, 4326,NULL,SDO_ELEM_INFO_ARRAY(1,2,1),new_ord);
+        end if;
+      
+        if (gtype = 2003) then --面
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+                loop
+                    point_ord := bd09Encrypt(old_ord(i+1),old_ord(i));
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(1),7);
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(2),7);
+                    i := i+2;
+                end loop;
+                return SDO_GEOMETRY(2003,4326,NULL,SDO_ELEM_INFO_ARRAY(1,1003,1),new_ord);
+        end if;
+        RETURN NULL;
+    END;
+
+  FUNCTION bd2gd(geom SDO_GEOMETRY) RETURN SDO_GEOMETRY IS
+    gtype int := geom.sdo_gtype;  --点线面判断
+    new_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    old_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    point_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    ord_length int;
+    i int := 1;
+    
+    BEGIN
+        if (gtype = 2001) then  --点
+            new_ord := bd09Decrypt(geom.sdo_point.y,geom.sdo_point.x);
+            RETURN SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(trunc(new_ord(1),7),trunc(new_ord(2),7),NULL),NULL,NULL);
+        end if;
+       
+        if (gtype = 2002) then --线
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+            loop
+                point_ord := bd09Decrypt(old_ord(i+1),old_ord(i));
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(1),7);
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(2),7);
+                i := i+2;
+            end loop;
+            return SDO_GEOMETRY(2002, 4326,NULL,SDO_ELEM_INFO_ARRAY(1,2,1),new_ord);
+        end if;
+      
+        if (gtype = 2003) then --面
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+                loop
+                    point_ord := bd09Decrypt(old_ord(i+1),old_ord(i));
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(1),7);
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(2),7);
+                    i := i+2;
+                end loop;
+                return SDO_GEOMETRY(2003,4326,NULL,SDO_ELEM_INFO_ARRAY(1,1003,1),new_ord);
+        end if;
+        RETURN NULL;
+    END;
+
+  FUNCTION bd2wgs(geom SDO_GEOMETRY) RETURN SDO_GEOMETRY IS 
+    tmp_geom sdo_geometry;
+    gtype int := geom.sdo_gtype;  --点线面判断
+    new_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    old_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    point_ord MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    ord_length int;
+    i int := 1;
+     
+    BEGIN
+        if (gtype = 2001) then  --点
+            tmp_geom := bd2gd(geom);
+            new_ord := gcj02Decrypt(tmp_geom.sdo_point.y, tmp_geom.sdo_point.x);   --两次处理 
+            RETURN SDO_GEOMETRY(2001,4326,SDO_POINT_TYPE(trunc(new_ord(1),7),trunc(new_ord(2),7),NULL),NULL,NULL);
+        end if;
+       
+        if (gtype = 2002) then --线
+            old_ord := geom.sdo_ordinates; 
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+            loop
+                point_ord := bd2gd(geom).SDO_ORDINATES;  --第一次
+                point_ord := gcj02Decrypt(point_ord(2),point_ord(1));  --第二次
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(1),7);
+                new_ord.extend;
+                new_ord(new_ord.last) := trunc(point_ord(2),7);
+                i := i+2;
+            end loop;
+            return SDO_GEOMETRY(2002, 4326,NULL,SDO_ELEM_INFO_ARRAY(1,2,1),new_ord);
+        end if;
+      
+        if (gtype = 2003) then --面
+            old_ord := geom.sdo_ordinates;
+            ord_length := old_ord.COUNT;
+            while (i <= ord_length - 1) 
+                loop
+                    point_ord := bd2gd(geom).SDO_ORDINATES;
+                    point_ord := gcj02Decrypt(point_ord(2),point_ord(1));
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(1),7);
+                    new_ord.extend;
+                    new_ord(new_ord.last) := trunc(point_ord(2),7);
+                    i := i+2;
+                end loop;
+                return SDO_GEOMETRY(2003,4326,NULL,SDO_ELEM_INFO_ARRAY(1,1003,1),new_ord);
+        end if;
+        RETURN NULL;
+    END;
+
+end COORD;
